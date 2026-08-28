@@ -53,7 +53,7 @@
       padding: 14px 16px;
       border-bottom: 1px solid #edf0f5;
     }
-    .row:first-child dt,.row:first-child dd {font-size:20px }
+
     .row:last-child { border-bottom: 0; }
 
     dt {
@@ -135,12 +135,15 @@
     <p id="status" role="status" aria-live="polite"></p>
   </main>
 
+  <script src="./device-model-brands.js"></script>
   <script>
     const infoElement = document.querySelector('#deviceInfo');
     const copyButton = document.querySelector('#copyButton');
     const refreshButton = document.querySelector('#refreshButton');
     const statusElement = document.querySelector('#status');
     let latestInfo = {};
+
+    const modelBrandCatalog = window.DEVICE_MODEL_BRANDS || Object.create(null);
 
     const displayValue = (value) => {
       if (value === undefined) return '不支持';
@@ -202,7 +205,7 @@
       return '';
     };
 
-    const getDeviceIdentity = (ua, platform, model, maxTouchPoints) => {
+    const getDeviceIdentity = (ua, platform, model, maxTouchPoints, modelBrands = {}) => {
       if (/iPhone/i.test(ua) || platform === 'iPhone') {
         return { brand: 'Apple', model: 'iPhone', name: 'Apple iPhone' };
       }
@@ -221,10 +224,6 @@
       }
       if (!model) return { brand: '', model: '', name: '' };
 
-      const knownModelBrands = {
-        '23127PN0CC': 'Xiaomi',
-        'PHK110': 'OPPO'
-      };
       const source = `${ua} ${model}`;
       const brandRules = [
         [/HONOR/i, 'HONOR'],
@@ -260,19 +259,26 @@
         [/HTC/i, 'HTC'],
         [/BlackBerry|BB10/i, 'BlackBerry']
       ];
-      const brand = knownModelBrands[model]
+      const brand = modelBrands[model.toUpperCase()]
         || brandRules.find(([pattern]) => pattern.test(source))?.[1]
         || '';
 
-      const name = brand && !model.toLowerCase().startsWith(brand.toLowerCase())
-        ? `${brand} ${model}`
-        : model;
+      const name = !brand
+        ? ''
+        : model.toLowerCase().startsWith(brand.toLowerCase()) ? model : `${brand} ${model}`;
       return { brand, model, name };
     };
 
-    const formatDevice = (deviceName, browserName) => {
-      if (deviceName && browserName) return `${deviceName}-${browserName}`;
-      if (deviceName) return `${deviceName} Browser`;
+    const formatDevice = ({ clientType, os, brand, model, deviceName, browserName }) => {
+      const resolvedDeviceName = deviceName || [brand, model].filter(Boolean).join(' ');
+
+      if (clientType === 'native') {
+        if (os === 'ios') return `${brand || 'Apple'} ${model || 'iPhone 7,1'}`;
+        return resolvedDeviceName || 'Unknown Device';
+      }
+
+      if (resolvedDeviceName && browserName) return `${resolvedDeviceName}-${browserName}`;
+      if (resolvedDeviceName) return `${resolvedDeviceName} Browser`;
       if (browserName) return `Unknown Device-${browserName}`;
       return 'Unknown Device';
     };
@@ -315,11 +321,19 @@
         navigator.userAgent,
         navigator.platform,
         model,
-        navigator.maxTouchPoints || 0
+        navigator.maxTouchPoints || 0,
+        modelBrandCatalog
       );
 
       latestInfo = {
-        'Device': formatDevice(device.name, browserName),
+        'Device': formatDevice({
+          clientType: 'h5',
+          os: /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : 'android',
+          brand: device.brand,
+          model: device.model,
+          deviceName: device.name,
+          browserName
+        }),
         'detected.brand': device.brand || undefined,
         'detected.model': device.model || undefined,
         'navigator.userAgent': navigator.userAgent,
