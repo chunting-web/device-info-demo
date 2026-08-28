@@ -149,19 +149,42 @@
       return String(value);
     };
 
-    const getAndroidModel = (ua) => {
-      const androidInfo = ua.match(/Android\s[\d.]+;\s*([^)]*)/i)?.[1];
-      const model = androidInfo?.split(';').at(-1).replace(/\s+Build\/.*$/i, '').trim();
-      return /^(K|Mobile|wv)$/i.test(model || '') ? '' : model || '';
+    const getDeviceModel = (ua, clientHintModel = '') => {
+      const hintedModel = clientHintModel.trim();
+      if (hintedModel && !/^(K|Mobile|wv)$/i.test(hintedModel)) return hintedModel;
+
+      const androidInfo = ua.match(/Android(?:\s[\d.]+)?;\s*([^)]*)/i)?.[1];
+      const androidModel = androidInfo?.split(';').at(-1)
+        .replace(/\s+(?:Build\/|wv\b).*$/i, '')
+        .trim();
+      if (androidModel && !/^(K|Mobile|wv|U|[a-z]{2}[-_][A-Z]{2})$/i.test(androidModel)) {
+        return androidModel;
+      }
+
+      const windowsPhoneModel = ua.match(
+        /Windows Phone(?: OS)?\s[^;)]*;\s*[^;)]*;\s*([^;)]+)/i
+      )?.[1]?.trim();
+      if (windowsPhoneModel) return windowsPhoneModel;
+
+      return ua.match(/\(Mobile;\s*([^;)]+);[^)]*\).*KaiOS/i)?.[1]?.trim() || '';
     };
 
     const getBrowserName = (ua, brands = []) => {
       const uaRules = [
         [/MicroMessenger/i, 'WeChat'],
-        [/EdgA|EdgiOS|Edg\//i, 'Edge'],
+        [/AlipayClient/i, 'Alipay'],
+        [/DingTalk/i, 'DingTalk'],
+        [/MQQBrowser|QQBrowser/i, 'QQ'],
+        [/baidubrowser|baiduboxapp/i, 'Baidu'],
+        [/SogouMobileBrowser/i, 'Sogou'],
+        [/360\s*Aphone|QihooBrowser/i, '360'],
+        [/EdgA|EdgiOS|Edg\/|Edge\//i, 'Edge'],
         [/OPR\/|OPiOS/i, 'Opera'],
         [/SamsungBrowser/i, 'Samsung'],
         [/HuaweiBrowser/i, 'Huawei'],
+        [/HeyTapBrowser/i, 'HeyTap'],
+        [/MiuiBrowser/i, 'MIUI'],
+        [/VivoBrowser/i, 'vivo'],
         [/UCBrowser|UCWEB/i, 'UC'],
         [/Quark/i, 'Quark'],
         [/CriOS|Chrome/i, 'Google'],
@@ -179,8 +202,24 @@
       return '';
     };
 
-    const getDeviceName = (ua, model) => {
-      if (!model) return '';
+    const getDeviceIdentity = (ua, platform, model, maxTouchPoints) => {
+      if (/iPhone/i.test(ua) || platform === 'iPhone') {
+        return { brand: 'Apple', model: 'iPhone', name: 'Apple iPhone' };
+      }
+      if (/iPad/i.test(ua) || platform === 'iPad'
+        || (platform === 'MacIntel' && maxTouchPoints > 1)) {
+        return { brand: 'Apple', model: 'iPad', name: 'Apple iPad' };
+      }
+      if (/iPod/i.test(ua) || platform === 'iPod') {
+        return { brand: 'Apple', model: 'iPod', name: 'Apple iPod' };
+      }
+      if (!model && /Windows Phone/i.test(ua)) {
+        return { brand: 'Microsoft', model: 'Windows Phone', name: 'Microsoft Windows Phone' };
+      }
+      if (!model && /KaiOS/i.test(ua)) {
+        return { brand: '', model: 'KaiOS Device', name: 'KaiOS Device' };
+      }
+      if (!model) return { brand: '', model: '', name: '' };
 
       const knownModelBrands = {
         '23127PN0CC': 'Xiaomi',
@@ -192,19 +231,43 @@
         [/HUAWEI/i, 'HUAWEI'],
         [/OPPO/i, 'OPPO'],
         [/\bvivo\b/i, 'vivo'],
+        [/iQOO/i, 'iQOO'],
         [/Xiaomi|Redmi|\bMIX\b/i, 'Xiaomi'],
+        [/POCO/i, 'POCO'],
         [/Samsung|SM-/i, 'Samsung'],
         [/OnePlus/i, 'OnePlus'],
         [/realme|RMX/i, 'realme'],
-        [/Motorola|\bmoto\b/i, 'Motorola']
+        [/Motorola|\bmoto\b/i, 'Motorola'],
+        [/Pixel/i, 'Google'],
+        [/Sony|Xperia/i, 'Sony'],
+        [/Nokia|\bHMD\b/i, 'Nokia'],
+        [/Meizu/i, 'Meizu'],
+        [/RedMagic|NX\d/i, 'RedMagic'],
+        [/nubia/i, 'nubia'],
+        [/ZTE/i, 'ZTE'],
+        [/ASUS|ZenFone|ROG Phone/i, 'ASUS'],
+        [/Lenovo/i, 'Lenovo'],
+        [/TECNO/i, 'TECNO'],
+        [/Infinix/i, 'Infinix'],
+        [/\bitel\b/i, 'itel'],
+        [/Nothing/i, 'Nothing'],
+        [/Fairphone/i, 'Fairphone'],
+        [/Microsoft|Lumia/i, 'Microsoft'],
+        [/TCL/i, 'TCL'],
+        [/Alcatel/i, 'Alcatel'],
+        [/Sharp|AQUOS/i, 'Sharp'],
+        [/\bLG[- ]|LGE/i, 'LG'],
+        [/HTC/i, 'HTC'],
+        [/BlackBerry|BB10/i, 'BlackBerry']
       ];
       const brand = knownModelBrands[model]
         || brandRules.find(([pattern]) => pattern.test(source))?.[1]
         || '';
 
-      return brand && !model.toLowerCase().startsWith(brand.toLowerCase())
+      const name = brand && !model.toLowerCase().startsWith(brand.toLowerCase())
         ? `${brand} ${model}`
         : model;
+      return { brand, model, name };
     };
 
     const formatDevice = (deviceName, browserName) => {
@@ -246,12 +309,19 @@
         }
       }
 
-      const model = highEntropy.model || getAndroidModel(navigator.userAgent);
+      const model = getDeviceModel(navigator.userAgent, highEntropy.model);
       const browserName = getBrowserName(navigator.userAgent, userAgentData?.brands);
-      const deviceName = getDeviceName(navigator.userAgent, model);
+      const device = getDeviceIdentity(
+        navigator.userAgent,
+        navigator.platform,
+        model,
+        navigator.maxTouchPoints || 0
+      );
 
       latestInfo = {
-        'Device': formatDevice(deviceName, browserName),
+        'Device': formatDevice(device.name, browserName),
+        'detected.brand': device.brand || undefined,
+        'detected.model': device.model || undefined,
         'navigator.userAgent': navigator.userAgent,
         'navigator.platform': navigator.platform,
         'navigator.language': navigator.language,
